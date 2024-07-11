@@ -1,0 +1,126 @@
+import cv2
+import serial
+import numpy as np
+import roboflow
+from roboflow import Roboflow
+
+# Constants for IR footage
+BAUD_RATE = 962100  # Baud rate for serial communication
+DATA_LENGTH = 2064  # Length of data received from the IR sensor
+IR_IMAGE_SIZE = 32  # Size of the IR image
+COLOR_MAP = [...]    # A list of color codes for temperature mapping
+cid_rgb = [...]       # RGB color codes derived from COLOR_MAP
+
+# Serial port initialization
+ser = serial.Serial("/dev/ttyS0", BAUD_RATE, timeout=0, parity=serial.PARITY_NONE, stopbits=1)
+
+# Initialize Roboflow
+rf = Roboflow(api_key="UKEVAtw2aKclIfdxx2kA")
+project = rf.workspace().project("electrical-grid-maintenance")
+model = project.version(2).model
+
+# Optionally, set confidence and overlap thresholds for the model
+model.confidence = 30
+model.overlap = 25
+
+# Open the webcam
+cap = cv2.VideoCapture(0)
+
+# Check if the webcam is opened successfully
+if not cap.isOpened():
+    print("Error: Could not open webcam.")
+    exit()
+
+# Resolution
+desired_resolution = (640, 480)
+
+while True:
+    # Capture frame-by-frame
+    ret, frame = cap.read()
+
+    # Check if the frame was successfully captured
+    if not ret:
+        print("Error: Could not read frame from the webcam.")
+        break
+
+    # Convert the frame to a numpy array with the correct data type (uint8)
+    frame_np = np.array(frame, dtype=np.uint8)
+
+    # Predict on the frame using the Roboflow YOLOv5 model
+    prediction = model.predict(frame_np)
+
+    # Iterate over each prediction and draw a rectangle around the detected object
+    for pred in prediction:
+        x, y, w, h = int(pred['x']), int(pred['y']), int(pred['width']), int(pred['height'])
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(frame, f"{pred['class']} {pred['confidence']:.2f}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Read IR data
+    data = ser.read(DATA_LENGTH)
+    if len(data) == DATA_LENGTH and data[0] == 0xfe and data[1] == 0x32:
+        temperatures = np.frombuffer(data[2:2050], dtype='int16') / 10.0
+        max_temp = np.max(temperatures)
+        min_temp = np.min(temperatures)
+        temperature range = max_temp - min_temp
+        normalized_temperatures = ((temperatures - min_temp) * 255) / temperature_range
+        pixel_colors = [cid_rgb[int(val)] for val in normalized_temperatures]
+
+        # Create an IR frame using the color mapping and resize it to match the webcam resolution
+        ir_frame = np.array(pixel_colors).reshape(IR_IMAGE_SIZE, IR_IMAGE_SIZE, 3).astype('uint8')
+        ir_frame = cv2.resize(ir_frame, desired_resolution, interpolation=cv2.INTER_LINEAR)
+
+    # Display the resulting frame with object detection and IR overlay
+    cv2.imshow('Combined Footage', cv2.addWeighted(frame, 0.5, ir_frame, 0.5, 0))
+
+    # Exit the loop when the 'q' key is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release the webcam and close the window
+cap.release()
+cv2.destroyAllWindows()
+
+
+
+This code integrates a webcam, object detection (using a YOLOv5 model from Roboflow), and infrared (IR) temperature mapping. Here's a breakdown:
+
+Import necessary libraries, including OpenCV for webcam access, serial for IR data, and NumPy for numerical operations.
+
+Define constants such as BAUD_RATE, DATA_LENGTH, IR_IMAGE_SIZE, and COLOR_MAP for IR temperature mapping.
+
+Initialize the serial port to communicate with the IR sensor.
+
+Initialize Roboflow to access the YOLOv5 model for object detection. Optionally, set confidence and overlap thresholds for the model.
+
+Open the webcam and check if it's opened successfully.
+
+Capture frames from the webcam, and predict objects in each frame using the YOLOv5 model.
+
+Iterate over the predictions, drawing bounding boxes and labels on the frame.
+
+Read IR data from the serial port, process it to generate an IR frame, and resize it to match the webcam resolution.
+
+Display the combined frame with object detection and IR overlay using cv2.imshow.
+
+The program continues to run until the 'q' key is pressed. When 'q' is pressed, it releases the webcam and closes the OpenCV window.
+
+
+
+
+REQUIRED LIBRARIES
+
+serial: For working with serial communication.
+cv2 (OpenCV): For computer vision tasks, including webcam access and image processing.
+numpy: For numerical operations on arrays, used for processing IR data.
+roboflow: A library for working with Roboflow, a platform for managing computer vision datasets and models.
+PIL (Pillow): For image manipulation.
+torch: The PyTorch library, used for machine learning and deep learning, particularly for YOLOv5.
+yolov5: This should be the YOLOv5 library, which includes the YOLOv5 model, dataset handling, and utility functions.
+
+CODE FOR INSTALLING THEM
+pip install pyserial
+pip install opencv-python
+pip install numpy
+pip install roboflow
+pip install pillow
+pip install torch
